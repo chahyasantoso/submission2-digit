@@ -48,11 +48,13 @@ if __name__ == '__main__':
     
     components = init_components(
         DATA_ROOT,
-        transform_module=TRANSFORM_MODULE_FILE,
-        tuner_module=TUNER_MODULE_FILE,
-        training_module=TRAINER_MODULE_FILE,
-        training_steps=1000,
-        eval_steps=200,
+        module_files={
+            'transform':TRANSFORM_MODULE_FILE,
+            'tuner':TUNER_MODULE_FILE,
+            'trainer':TRAINER_MODULE_FILE,
+        },
+        training_steps=100,
+        eval_steps=20,
         serving_model_dir=serving_model_dir,
     )
     

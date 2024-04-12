@@ -1,7 +1,7 @@
 FROM tensorflow/serving:latest
 
 COPY ./output/serving_model /models/review-sentiment-model
-COPY ./config /model_config
+COPY ./monitoring/config /model_config
 
 ENV MODEL_NAME=review-sentiment-model 
 ENV MONITORING_CONFIG="/model_config/prometheus.config"
