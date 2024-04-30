@@ -1,23 +1,19 @@
-'''
+"""
 Transform module
-'''
+"""
 
 import nltk
 from nltk.corpus import stopwords
-
 import tensorflow as tf
-import tensorflow_transform as tft
 from utils import (
     transformed_name,
     LABEL_KEY,
     FEATURE_KEY
 )
 
-nltk.download('stopwords')
-STOPWORDS = set(stopwords.words('english'))
 
 def preprocessing_fn(inputs):
-    '''
+    """
     Preprocess input features into transformed features
 
     Args:
@@ -25,9 +21,11 @@ def preprocessing_fn(inputs):
 
     Return:
         outputs: map from feature keys to transformed features.
-    '''
+    """
 
     outputs = {}
+    nltk.download("stopwords")
+    stop_words = set(stopwords.words("english"))
 
     # lowercase inputs
     outputs[transformed_name(FEATURE_KEY)] = tf.strings.lower(
@@ -36,21 +34,31 @@ def preprocessing_fn(inputs):
     # remove <br />
     outputs[transformed_name(FEATURE_KEY)] = tf.strings.regex_replace(
         outputs[transformed_name(FEATURE_KEY)],
-        r'(?:<br />)', ' ')
+        r"(?:<br />)", " ")
 
     # remove non alphanum characters
     outputs[transformed_name(FEATURE_KEY)] = tf.strings.regex_replace(
         outputs[transformed_name(FEATURE_KEY)],
-        r'\W+', ' ')
+        r"\W+", " ")
 
     # remove stopwords
     outputs[transformed_name(FEATURE_KEY)] = tf.strings.regex_replace(
         outputs[transformed_name(FEATURE_KEY)],
-        r'\b(' + r'|'.join(STOPWORDS) + r')\b\s*', '')
+        r"\b(" + r"|".join(stop_words) + r")\b\s*", "")
 
     # change label negative, positive to numeric 0/1
-    outputs[transformed_name(LABEL_KEY)] = tft.compute_and_apply_vocabulary(
-        inputs[LABEL_KEY], top_k=2
-    )
+    @tf.function
+    def num_label(label):
+        return tf.constant(
+            0,
+            dtype=tf.int64) if (
+            label == 'negative') else tf.constant(
+            1,
+            dtype=tf.int64)
+
+    outputs[transformed_name(LABEL_KEY)] = tf.map_fn(
+        fn=num_label,
+        elems=inputs[LABEL_KEY],
+        fn_output_signature=tf.int64)
 
     return outputs

@@ -3,6 +3,11 @@
 
 import os
 import tensorflow_model_analysis as tfma
+from utils import (
+    LABEL_KEY,
+    transformed_name,
+)
+
 from tfx.components import (
     CsvExampleGen,
     StatisticsGen,
@@ -44,42 +49,44 @@ def init_components(
         TFX components
     '''
 
+    components = {}
+
     output = example_gen_pb2.Output(
         split_config=example_gen_pb2.SplitConfig(splits=[
             example_gen_pb2.SplitConfig.Split(name='train', hash_buckets=8),
-            example_gen_pb2.SplitConfig.Split(name='eval', hash_buckets=2)
+            example_gen_pb2.SplitConfig.Split(name='eval', hash_buckets=2),
         ])
     )
 
-    example_gen = CsvExampleGen(
+    components['example_gen'] = CsvExampleGen(
         input_base=data_dir,
         output_config=output
     )
 
-    statistics_gen = StatisticsGen(
-        examples=example_gen.outputs['examples']
+    components['statistics_gen'] = StatisticsGen(
+        examples=components['example_gen'].outputs['examples']
     )
 
-    schema_gen = SchemaGen(
-        statistics=statistics_gen.outputs['statistics']
+    components['schema_gen'] = SchemaGen(
+        statistics=components['statistics_gen'].outputs['statistics']
     )
 
-    example_validator = ExampleValidator(
-        statistics=statistics_gen.outputs['statistics'],
-        schema=schema_gen.outputs['schema']
+    components['example_validator'] = ExampleValidator(
+        statistics=components['statistics_gen'].outputs['statistics'],
+        schema=components['schema_gen'].outputs['schema']
     )
 
-    transform = Transform(
-        examples=example_gen.outputs['examples'],
-        schema=schema_gen.outputs['schema'],
+    components['transform'] = Transform(
+        examples=components['example_gen'].outputs['examples'],
+        schema=components['schema_gen'].outputs['schema'],
         module_file=os.path.abspath(module_files['transform'])
     )
 
-    tuner = Tuner(
+    components['tuner'] = Tuner(
         module_file=os.path.abspath(module_files['tuner']),
-        examples=transform.outputs['transformed_examples'],
-        transform_graph=transform.outputs['transform_graph'],
-        schema=schema_gen.outputs['schema'],
+        examples=components['transform'].outputs['transformed_examples'],
+        transform_graph=components['transform'].outputs['transform_graph'],
+        schema=components['schema_gen'].outputs['schema'],
         train_args=trainer_pb2.TrainArgs(
             splits=['train'],
             num_steps=training_steps),
@@ -88,12 +95,12 @@ def init_components(
             num_steps=eval_steps)
     )
 
-    trainer = Trainer(
+    components['trainer'] = Trainer(
         module_file=os.path.abspath(module_files['trainer']),
-        examples=transform.outputs['transformed_examples'],
-        transform_graph=transform.outputs['transform_graph'],
-        schema=schema_gen.outputs['schema'],
-        hyperparameters=tuner.outputs['best_hyperparameters'],
+        examples=components['transform'].outputs['transformed_examples'],
+        transform_graph=components['transform'].outputs['transform_graph'],
+        schema=components['schema_gen'].outputs['schema'],
+        hyperparameters=components['tuner'].outputs['best_hyperparameters'],
         train_args=trainer_pb2.TrainArgs(
             splits=['train'],
             num_steps=training_steps),
@@ -102,7 +109,7 @@ def init_components(
             num_steps=eval_steps)
     )
 
-    model_resolver = Resolver(
+    components['resolver'] = Resolver(
         strategy_class=LatestBlessedModelStrategy,
         model=Channel(type=Model),
         model_blessing=Channel(type=ModelBlessing)
@@ -114,17 +121,18 @@ def init_components(
 
     metrics_specs = [
         tfma.MetricsSpec(metrics=[
-            tfma.MetricConfig(class_name='AUC'),
-            tfma.MetricConfig(class_name="Precision"),
+            tfma.MetricConfig(class_name="ExampleCount"),
+            tfma.MetricConfig(class_name='Precision'),
+            tfma.MetricConfig(class_name='Recall'),
+            tfma.MetricConfig(class_name='F1Score'),
             tfma.MetricConfig(class_name='FalsePositives'),
             tfma.MetricConfig(class_name='TruePositives'),
             tfma.MetricConfig(class_name='FalseNegatives'),
             tfma.MetricConfig(class_name='TrueNegatives'),
-            tfma.MetricConfig(class_name="ExampleCount"),
             tfma.MetricConfig(class_name='BinaryAccuracy',
                               threshold=tfma.MetricThreshold(
                                   value_threshold=tfma.GenericValueThreshold(
-                                      lower_bound={'value': 0.5}),
+                                      lower_bound={'value': 0.85}),
                                   change_threshold=tfma.GenericChangeThreshold(
                                       direction=tfma.MetricDirection.HIGHER_IS_BETTER,
                                       absolute={'value': 0.0001})
@@ -132,26 +140,28 @@ def init_components(
                               )
         ])
     ]
-
     eval_config = tfma.EvalConfig(
-        # Label key disini pakai label key yang sudah ditransform, karena
-        # example nya pakai example yang sudah ditransform
-        model_specs=[tfma.ModelSpec(label_key='sentiment_xf')],
+        # Label key pakai label key yang sudah ditransform
+        # karena output modelnya numeric bukan 'negative/positive'
+        model_specs=[tfma.ModelSpec(
+            signature_name='serving_default',
+            label_key=transformed_name(LABEL_KEY),
+            preprocessing_function_names=['transform_features'],
+            prediction_key='output'
+        )],
         slicing_specs=slicing_specs,
         metrics_specs=metrics_specs
     )
 
-    evaluator = Evaluator(
-        # Examples nya menggunakan example yang sudah ditransform
-        # (karena outputnya numeric bukan 'negative/positive')
-        examples=transform.outputs['transformed_examples'],
-        model=trainer.outputs['model'],
-        baseline_model=model_resolver.outputs['model'],
+    components['evaluator'] = Evaluator(
+        examples=components['example_gen'].outputs['examples'],
+        model=components['trainer'].outputs['model'],
+        baseline_model=components['resolver'].outputs['model'],
         eval_config=eval_config)
 
-    pusher = Pusher(
-        model=trainer.outputs["model"],
-        model_blessing=evaluator.outputs["blessing"],
+    components['pusher'] = Pusher(
+        model=components['trainer'].outputs['model'],
+        model_blessing=components['evaluator'].outputs['blessing'],
         push_destination=pusher_pb2.PushDestination(
             filesystem=pusher_pb2.PushDestination.Filesystem(
                 base_directory=serving_model_dir
@@ -159,17 +169,4 @@ def init_components(
         ),
     )
 
-    components = (
-        example_gen,
-        statistics_gen,
-        schema_gen,
-        example_validator,
-        transform,
-        tuner,
-        trainer,
-        model_resolver,
-        evaluator,
-        pusher
-    )
-
-    return components
+    return list(components.values())

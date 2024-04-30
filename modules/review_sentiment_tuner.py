@@ -11,12 +11,17 @@ from typing import (
 import tensorflow as tf
 import tensorflow_transform as tft
 import kerastuner as kt
-from tfx.components.trainer.fn_args_utils import FnArgs
 from kerastuner.engine import base_tuner
+from tfx.components.trainer.fn_args_utils import FnArgs
+
 from utils import (
+    TRAIN_BATCH_SIZE,
+    EVAL_BATCH_SIZE,
+    FEATURE_KEY,
+    transformed_name,
     input_fn,
+    vectorize_layer,
     get_hyperparameters,
-    vectorize_dataset,
     model_builder,
 )
 
@@ -38,7 +43,7 @@ def tuner_fn(fn_args: FnArgs) -> TunerFnResult:
     # Strategi hyperparameter tuning
     tuner = kt.RandomSearch(
         model_builder,
-        max_trials=20,
+        max_trials=5,
         hyperparameters=get_hyperparameters(),
         objective=kt.Objective('val_binary_accuracy', 'max'),
         directory=fn_args.working_dir,
@@ -54,18 +59,21 @@ def tuner_fn(fn_args: FnArgs) -> TunerFnResult:
     tf_transform_output = tft.TFTransformOutput(fn_args.transform_graph_path)
 
     # Create batches of data
-    train_set = input_fn(fn_args.train_files, tf_transform_output, 10)
-    val_set = input_fn(fn_args.eval_files, tf_transform_output, 10)
+    train_set = input_fn(fn_args.train_files, tf_transform_output, TRAIN_BATCH_SIZE)
+    val_set = input_fn(fn_args.eval_files, tf_transform_output, EVAL_BATCH_SIZE)
 
-    vectorize_dataset(train_set)
+    # Ambil text set nya saja untuk di adapt
+    text_set = train_set.map(
+        lambda features, _: features[transformed_name(FEATURE_KEY)])
+    vectorize_layer.adapt(text_set)
 
     return TunerFnResult(
         tuner=tuner,
         fit_kwargs={
-            'callbacks': [es],
             'x': train_set,
             'validation_data': val_set,
             'steps_per_epoch': fn_args.train_steps,
-            'validation_steps': fn_args.eval_steps
+            'validation_steps': fn_args.eval_steps,
+            'callbacks': [es],
         }
     )
