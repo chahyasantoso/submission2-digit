@@ -14,9 +14,9 @@ PIPELINE_NAME = 'chahya_santoso-pipeline'
 
 # pipeline inputs
 DATA_ROOT = 'data'
-TRANSFORM_MODULE_FILE = 'modules/review_sentiment_transform.py'
-TUNER_MODULE_FILE = 'modules/review_sentiment_tuner.py'
-TRAINER_MODULE_FILE = 'modules/review_sentiment_trainer.py'
+TRANSFORM_MODULE_FILE = 'modules/digit_classification_transform.py'
+TUNER_MODULE_FILE = 'modules/digit_classification_tuner.py'
+TRAINER_MODULE_FILE = 'modules/digit_classification_trainer.py'
 
 # pipeline outputs
 OUTPUT_BASE = 'output'
@@ -61,8 +61,8 @@ if __name__ == '__main__':
             'tuner': TUNER_MODULE_FILE,
             'trainer': TRAINER_MODULE_FILE,
         },
-        training_steps=625,
-        eval_steps=156,
+        training_steps=80,
+        eval_steps=15,
         serving_model_dir=serving_model_dir,
     )
 

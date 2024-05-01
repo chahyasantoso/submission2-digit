@@ -12,6 +12,8 @@ __pycache__/
 /pipelines
 /serving_model
 
+/mnist_png
+
 # Distribution / packaging
 .Python
 build/

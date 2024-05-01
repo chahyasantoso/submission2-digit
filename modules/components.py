@@ -1,15 +1,11 @@
-'''Initiate tfx pipeline components
+'''
+Initiate tfx pipeline components
 '''
 
 import os
 import tensorflow_model_analysis as tfma
-from utils import (
-    LABEL_KEY,
-    transformed_name,
-)
-
 from tfx.components import (
-    CsvExampleGen,
+    ImportExampleGen,
     StatisticsGen,
     SchemaGen,
     ExampleValidator,
@@ -26,7 +22,9 @@ from tfx.types.standard_artifacts import Model, ModelBlessing
 from tfx.dsl.input_resolution.strategies.latest_blessed_model_strategy import (
     LatestBlessedModelStrategy
 )
-
+from modules.utils import (
+    LABEL_KEY,
+)
 
 def init_components(
     data_dir,
@@ -51,17 +49,13 @@ def init_components(
 
     components = {}
 
-    output = example_gen_pb2.Output(
-        split_config=example_gen_pb2.SplitConfig(splits=[
-            example_gen_pb2.SplitConfig.Split(name='train', hash_buckets=8),
-            example_gen_pb2.SplitConfig.Split(name='eval', hash_buckets=2),
-        ])
-    )
+    input_config = example_gen_pb2.Input(splits=[
+        example_gen_pb2.Input.Split(name='train', pattern='train\\*'),
+        example_gen_pb2.Input.Split(name='eval', pattern='test\\*')
+    ])
 
-    components['example_gen'] = CsvExampleGen(
-        input_base=data_dir,
-        output_config=output
-    )
+    components['example_gen'] = ImportExampleGen(
+        input_base=data_dir, input_config=input_config)
 
     components['statistics_gen'] = StatisticsGen(
         examples=components['example_gen'].outputs['examples']
@@ -125,28 +119,19 @@ def init_components(
             tfma.MetricConfig(class_name='Precision'),
             tfma.MetricConfig(class_name='Recall'),
             tfma.MetricConfig(class_name='F1Score'),
-            tfma.MetricConfig(class_name='FalsePositives'),
-            tfma.MetricConfig(class_name='TruePositives'),
-            tfma.MetricConfig(class_name='FalseNegatives'),
-            tfma.MetricConfig(class_name='TrueNegatives'),
-            tfma.MetricConfig(class_name='BinaryAccuracy',
-                              threshold=tfma.MetricThreshold(
-                                  value_threshold=tfma.GenericValueThreshold(
-                                      lower_bound={'value': 0.85}),
-                                  change_threshold=tfma.GenericChangeThreshold(
-                                      direction=tfma.MetricDirection.HIGHER_IS_BETTER,
-                                      absolute={'value': 0.0001})
-                              )
-                              )
+            tfma.MetricConfig(
+                class_name='SparseCategoricalAccuracy',
+                threshold=tfma.MetricThreshold(
+                    value_threshold=tfma.GenericValueThreshold(
+                        lower_bound={'value': 0.8}),
+                    change_threshold=tfma.GenericChangeThreshold(
+                        direction=tfma.MetricDirection.HIGHER_IS_BETTER,
+                        absolute={'value': -1e-3})))
         ])
     ]
     eval_config = tfma.EvalConfig(
-        # Label key pakai label key yang sudah ditransform
-        # karena output modelnya numeric bukan 'negative/positive'
         model_specs=[tfma.ModelSpec(
-            signature_name='serving_default',
-            label_key=transformed_name(LABEL_KEY),
-            preprocessing_function_names=['transform_features'],
+            label_key=LABEL_KEY,
             prediction_key='output'
         )],
         slicing_specs=slicing_specs,
